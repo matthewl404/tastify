@@ -1,0 +1,4 @@
+# Ignore environment files with secrets
+.env
+# Ignore the node_modules folder (we can reinstall it from package.json)
+node_modules
