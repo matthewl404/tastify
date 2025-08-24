@@ -3,12 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
-const path = require('path');
-
-// Fix: Correct User model import using path
-const User = require(path.join(__dirname, 'models', 'User'));
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -17,15 +12,11 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-.then(() => console.log('✅ Connected to MongoDB Atlas'))
-.catch((err) => {
-  console.error('❌ MongoDB connection error:', err);
-  process.exit(1);
-});
+// In-memory "database" (for demo purposes)
+let users = [];
+let tasteHistory = [];
 
-// Auth middleware
+// Simple auth middleware
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -35,8 +26,9 @@ const auth = async (req, res, next) => {
     }
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
-    const user = await User.findById(decoded.id);
     
+    // Find user in memory
+    const user = users.find(u => u.id === decoded.id);
     if (!user) {
       return res.status(401).json({ error: 'Token is not valid.' });
     }
@@ -48,7 +40,7 @@ const auth = async (req, res, next) => {
   }
 };
 
-// AUTH ENDPOINTS with better error handling
+// SIMPLIFIED AUTH ENDPOINTS (No Database)
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -64,19 +56,31 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    // Check if user exists
-    const userExists = await User.findOne({ email });
+    // Check if user exists (in memory)
+    const userExists = users.find(u => u.email === email);
     if (userExists) {
       return res.status(400).json({ error: 'User already exists with this email' });
     }
 
     // Create user
-    const user = new User({ email, password });
-    await user.save();
+    const user = {
+      id: Date.now().toString(),
+      email,
+      preferences: {
+        vegetarian: false,
+        vegan: false,
+        spicy: false,
+        sweet: false,
+        glutenFree: false,
+        dairyFree: false
+      }
+    };
+
+    users.push(user);
 
     // Generate token
     const token = jwt.sign(
-      { id: user._id }, 
+      { id: user.id }, 
       process.env.JWT_SECRET || 'fallback-secret',
       { expiresIn: '7d' }
     );
@@ -87,7 +91,7 @@ app.post('/api/auth/register', async (req, res) => {
       message: 'User created successfully',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         email: user.email,
         preferences: user.preferences
       }
@@ -109,21 +113,15 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user
-    const user = await User.findOne({ email });
+    // For demo purposes, any password works - just check email
+    const user = users.find(u => u.email === email);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    // Check password
-    const isPasswordValid = await user.correctPassword(password);
-    if (!isPasswordValid) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Generate token
     const token = jwt.sign(
-      { id: user._id }, 
+      { id: user.id }, 
       process.env.JWT_SECRET || 'fallback-secret',
       { expiresIn: '7d' }
     );
@@ -134,7 +132,7 @@ app.post('/api/auth/login', async (req, res) => {
       message: 'Login successful',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         email: user.email,
         preferences: user.preferences
       }
@@ -145,35 +143,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// PROTECTED PROFILE ENDPOINTS
-app.get('/api/profile', auth, async (req, res) => {
-  res.json({
-    user: req.user
-  });
-});
-
-app.put('/api/profile/preferences', auth, async (req, res) => {
-  try {
-    const { preferences } = req.body;
-    
-    if (!preferences) {
-      return res.status(400).json({ error: 'Preferences are required' });
-    }
-
-    req.user.preferences = { ...req.user.preferences, ...preferences };
-    await req.user.save();
-
-    res.json({
-      message: 'Preferences updated successfully',
-      preferences: req.user.preferences
-    });
-  } catch (error) {
-    console.error('Preferences update error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// THE PREDICTION ENDPOINT (Updated to save history)
+// SIMPLIFIED PREDICTION (No database saving)
 app.post('/api/predict', auth, async (req, res) => {
   try {
     const { ingredients } = req.body;
@@ -232,14 +202,6 @@ app.post('/api/predict', auth, async (req, res) => {
       };
     }
 
-    // Save to user's taste history
-    req.user.tasteHistory.push({
-      ingredients: ingredients.split(',').map(i => i.trim()),
-      prediction: predictionData.prediction,
-      confidence: predictionData.confidence
-    });
-    await req.user.save();
-
     res.json(predictionData);
 
   } catch (error) {
@@ -260,7 +222,7 @@ app.post('/api/predict', auth, async (req, res) => {
   }
 });
 
-// RECIPE GENERATION ENDPOINT
+// RECIPE GENERATION ENDPOINT (Unchanged)
 app.post('/api/generate-recipe', auth, async (req, res) => {
   try {
     const { ingredients, prediction } = req.body;
@@ -396,31 +358,20 @@ app.post('/api/generate-recipe', auth, async (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check endpoint (Simplified)
 app.get('/api/health', async (req, res) => {
-  try {
-    // Check database connection
-    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-    
-    res.json({ 
-      status: 'OK', 
-      message: 'AI Taste Predictor API is running',
-      database: dbStatus,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'ERROR', 
-      message: 'Service unavailable',
-      error: error.message 
-    });
-  }
+  res.json({ 
+    status: 'OK', 
+    message: 'AI Taste Predictor API is running (No Database)',
+    timestamp: new Date().toISOString(),
+    usersCount: users.length
+  });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'Welcome to AI Taste Predictor API',
+    message: 'Welcome to AI Taste Predictor API (No Database Version)',
     version: '1.0.0',
     endpoints: {
       auth: {
@@ -428,8 +379,6 @@ app.get('/', (req, res) => {
         login: 'POST /api/auth/login'
       },
       protected: {
-        profile: 'GET /api/profile',
-        preferences: 'PUT /api/profile/preferences',
         predict: 'POST /api/predict',
         generateRecipe: 'POST /api/generate-recipe'
       },
@@ -440,15 +389,12 @@ app.get('/', (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`🚀 Server is running and listening on port ${port}`);
+  console.log(`🚀 Server is running and listening on port ${port} (No Database)`);
   console.log(`🌐 API URL: http://localhost:${port}`);
   console.log('📋 Available Endpoints:');
   console.log(`   POST /api/auth/register   - Register new user`);
   console.log(`   POST /api/auth/login      - Login user`);
-  console.log(`   GET  /api/profile         - Get user profile (protected)`);
-  console.log(`   PUT  /api/profile/preferences - Update preferences (protected)`);
-  console.log(`   POST /api/predict         - AI taste prediction (protected)`);
-  console.log(`   POST /api/generate-recipe - Generate AI recipe (protected)`);
+  console.log(`   POST /api/predict         - AI taste prediction`);
+  console.log(`   POST /api/generate-recipe - Generate AI recipe`);
   console.log(`   GET  /api/health          - Health check`);
-  console.log(`   GET  /                    - API information`);
 });
