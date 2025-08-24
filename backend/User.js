@@ -41,19 +41,28 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password before saving
+// Hash password before saving - FIXED VERSION
 userSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified
+  // Only hash the password if it has been modified (or is new)
   if (!this.isModified('password')) return next();
   
-  // Hash the password with cost of 12
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
+  try {
+    // Hash the password with bcrypt
+    const saltRounds = 12;
+    this.password = await bcrypt.hash(this.password, saltRounds);
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
-// Compare password method
+// Compare password method - FIXED VERSION
 userSchema.methods.correctPassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  try {
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    throw new Error('Password comparison failed');
+  }
 };
 
 // Remove password from JSON output
