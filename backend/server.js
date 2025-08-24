@@ -1,9 +1,11 @@
 // backend/server.js
-const User = require('./models/User');
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const User = require('./models/User');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -12,8 +14,153 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// THE PREDICTION ENDPOINT
-app.post('/api/predict', async (req, res) => {
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('✅ Connected to MongoDB Atlas'))
+.catch((err) => {
+  console.error('❌ MongoDB connection error:', err);
+  process.exit(1);
+});
+
+// Auth middleware
+const auth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Access denied. No token provided.' });
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
+    const user = await User.findById(decoded.id);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Token is not valid.' });
+    }
+    
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Please authenticate.' });
+  }
+};
+
+// AUTH ENDPOINTS
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validation
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if user exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ error: 'User already exists with this email' });
+    }
+
+    // Create user
+    const user = new User({ email, password });
+    await user.save();
+
+    // Generate token
+    const token = jwt.sign(
+      { id: user._id }, 
+      process.env.JWT_SECRET || 'fallback-secret',
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      message: 'User created successfully',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        preferences: user.preferences
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validation
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Find user and check password
+    const user = await User.findOne({ email });
+    if (!user || !(await user.correctPassword(password))) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Generate token
+    const token = jwt.sign(
+      { id: user._id }, 
+      process.env.JWT_SECRET || 'fallback-secret',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        preferences: user.preferences
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PROTECTED PROFILE ENDPOINTS
+app.get('/api/profile', auth, async (req, res) => {
+  res.json({
+    user: req.user
+  });
+});
+
+app.put('/api/profile/preferences', auth, async (req, res) => {
+  try {
+    const { preferences } = req.body;
+    
+    if (!preferences) {
+      return res.status(400).json({ error: 'Preferences are required' });
+    }
+
+    req.user.preferences = { ...req.user.preferences, ...preferences };
+    await req.user.save();
+
+    res.json({
+      message: 'Preferences updated successfully',
+      preferences: req.user.preferences
+    });
+  } catch (error) {
+    console.error('Preferences update error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// THE PREDICTION ENDPOINT (Updated to save history)
+app.post('/api/predict', auth, async (req, res) => {
   try {
     const { ingredients } = req.body;
 
@@ -55,14 +202,12 @@ app.post('/api/predict', async (req, res) => {
     // Parse the AI's response
     const aiResponse = response.data.choices[0].message.content.trim();
     
+    let predictionData;
     try {
-      // Try to parse JSON response
-      const predictionData = JSON.parse(aiResponse);
-      res.json(predictionData);
+      predictionData = JSON.parse(aiResponse);
     } catch (parseError) {
-      // If JSON parsing fails, fall back to text response
       console.log('AI returned non-JSON response, using fallback');
-      const fallbackResponse = {
+      predictionData = {
         prediction: Math.random() > 0.5 ? 'like' : 'dislike',
         confidence: (Math.random() * 0.3 + 0.6).toFixed(2),
         suggestions: [
@@ -71,13 +216,22 @@ app.post('/api/predict', async (req, res) => {
           'Try different seasoning combinations to enhance the taste'
         ]
       };
-      res.json(fallbackResponse);
     }
+
+    // Save to user's taste history
+    req.user.tasteHistory.push({
+      ingredients: ingredients.split(',').map(i => i.trim()),
+      prediction: predictionData.prediction,
+      confidence: predictionData.confidence
+    });
+    await req.user.save();
+
+    res.json(predictionData);
 
   } catch (error) {
     console.error('OpenAI Error:', error.response?.data || error.message);
     
-    // Fallback response if API call fails
+    // Fallback response
     const fallbackResponse = {
       prediction: Math.random() > 0.5 ? 'like' : 'dislike',
       confidence: (Math.random() * 0.3 + 0.6).toFixed(2),
@@ -93,7 +247,7 @@ app.post('/api/predict', async (req, res) => {
 });
 
 // RECIPE GENERATION ENDPOINT
-app.post('/api/generate-recipe', async (req, res) => {
+app.post('/api/generate-recipe', auth, async (req, res) => {
   try {
     const { ingredients, prediction } = req.body;
 
@@ -147,10 +301,9 @@ app.post('/api/generate-recipe', async (req, res) => {
     // Parse the AI's response
     const aiResponse = response.data.choices[0].message.content.trim();
     
+    let recipeData;
     try {
-      // Try to parse JSON response
-      const recipeData = JSON.parse(aiResponse);
-      res.json(recipeData);
+      recipeData = JSON.parse(aiResponse);
     } catch (parseError) {
       console.log('AI returned non-JSON recipe response, using fallback');
       
@@ -158,7 +311,7 @@ app.post('/api/generate-recipe', async (req, res) => {
       const ingredientList = ingredients.split(',').map(i => i.trim());
       const mainIngredient = ingredientList[0] || 'ingredients';
       
-      const fallbackRecipe = {
+      recipeData = {
         name: `AI-Generated ${mainIngredient} Delight`,
         prepTime: `${Math.floor(Math.random() * 10) + 10} minutes`,
         cookTime: `${Math.floor(Math.random() * 20) + 15} minutes`,
@@ -185,9 +338,9 @@ app.post('/api/generate-recipe', async (req, res) => {
           'Feel free to substitute ingredients based on availability'
         ]
       };
-      
-      res.json(fallbackRecipe);
     }
+    
+    res.json(recipeData);
 
   } catch (error) {
     console.error('Recipe Generation Error:', error.response?.data || error.message);
@@ -230,21 +383,42 @@ app.post('/api/generate-recipe', async (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'AI Taste Predictor API is running',
-    timestamp: new Date().toISOString()
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check database connection
+    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+    
+    res.json({ 
+      status: 'OK', 
+      message: 'AI Taste Predictor API is running',
+      database: dbStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'ERROR', 
+      message: 'Service unavailable',
+      error: error.message 
+    });
+  }
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
     message: 'Welcome to AI Taste Predictor API',
+    version: '1.0.0',
     endpoints: {
-      prediction: 'POST /api/predict',
-      recipe: 'POST /api/generate-recipe',
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login'
+      },
+      protected: {
+        profile: 'GET /api/profile',
+        preferences: 'PUT /api/profile/preferences',
+        predict: 'POST /api/predict',
+        generateRecipe: 'POST /api/generate-recipe'
+      },
       health: 'GET /api/health'
     }
   });
@@ -252,11 +426,15 @@ app.get('/', (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running and listening on port ${port}`);
-  console.log(`API URL: http://localhost:${port}`);
-  console.log('Endpoints:');
-  console.log(`  POST /api/predict - Analyze ingredients for taste prediction`);
-  console.log(`  POST /api/generate-recipe - Generate AI recipe`);
-  console.log(`  GET  /api/health - Health check`);
-  console.log(`  GET  / - API information`);
+  console.log(`🚀 Server is running and listening on port ${port}`);
+  console.log(`🌐 API URL: http://localhost:${port}`);
+  console.log('📋 Available Endpoints:');
+  console.log(`   POST /api/auth/register   - Register new user`);
+  console.log(`   POST /api/auth/login      - Login user`);
+  console.log(`   GET  /api/profile         - Get user profile (protected)`);
+  console.log(`   PUT  /api/profile/preferences - Update preferences (protected)`);
+  console.log(`   POST /api/predict         - AI taste prediction (protected)`);
+  console.log(`   POST /api/generate-recipe - Generate AI recipe (protected)`);
+  console.log(`   GET  /api/health          - Health check`);
+  console.log(`   GET  /                    - API information`);
 });
