@@ -3,7 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -12,139 +11,8 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory "database" (for demo purposes)
-let users = [];
-let tasteHistory = [];
-
-// Simple auth middleware
-const auth = async (req, res, next) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ error: 'Access denied. No token provided.' });
-    }
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
-    
-    // Find user in memory
-    const user = users.find(u => u.id === decoded.id);
-    if (!user) {
-      return res.status(401).json({ error: 'Token is not valid.' });
-    }
-    
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Please authenticate.' });
-  }
-};
-
-// SIMPLIFIED AUTH ENDPOINTS (No Database)
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    console.log('Registration attempt for:', email);
-
-    // Validation
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-
-    // Check if user exists (in memory)
-    const userExists = users.find(u => u.email === email);
-    if (userExists) {
-      return res.status(400).json({ error: 'User already exists with this email' });
-    }
-
-    // Create user
-    const user = {
-      id: Date.now().toString(),
-      email,
-      preferences: {
-        vegetarian: false,
-        vegan: false,
-        spicy: false,
-        sweet: false,
-        glutenFree: false,
-        dairyFree: false
-      }
-    };
-
-    users.push(user);
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user.id }, 
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    );
-
-    console.log('User registered successfully:', email);
-
-    res.status(201).json({
-      message: 'User created successfully',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        preferences: user.preferences
-      }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error during registration' });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    console.log('Login attempt for:', email);
-
-    // Validation
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    // For demo purposes, any password works - just check email
-    const user = users.find(u => u.email === email);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user.id }, 
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    );
-
-    console.log('User logged in successfully:', email);
-
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        preferences: user.preferences
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error during login' });
-  }
-});
-
-// SIMPLIFIED PREDICTION (No database saving)
-app.post('/api/predict', auth, async (req, res) => {
+// SIMPLIFIED PREDICTION (No auth, no users, no database)
+app.post('/api/predict', async (req, res) => {
   try {
     const { ingredients } = req.body;
 
@@ -222,8 +90,8 @@ app.post('/api/predict', auth, async (req, res) => {
   }
 });
 
-// RECIPE GENERATION ENDPOINT (Unchanged)
-app.post('/api/generate-recipe', auth, async (req, res) => {
+// RECIPE GENERATION ENDPOINT (No auth)
+app.post('/api/generate-recipe', async (req, res) => {
   try {
     const { ingredients, prediction } = req.body;
 
@@ -234,7 +102,7 @@ app.post('/api/generate-recipe', auth, async (req, res) => {
     // Construct the prompt for recipe generation
     const prompt = `
       Create a detailed recipe based on these ingredients: ${ingredients}.
-      The user's taste prediction was: ${prediction || 'unknown'}.
+      ${prediction ? `The user's taste prediction was: ${prediction}.` : ''}
       
       Generate a COMPLETE recipe with the following structure:
       - A creative, appealing recipe name
@@ -358,30 +226,23 @@ app.post('/api/generate-recipe', auth, async (req, res) => {
   }
 });
 
-// Health check endpoint (Simplified)
+// Health check endpoint
 app.get('/api/health', async (req, res) => {
   res.json({ 
     status: 'OK', 
-    message: 'AI Taste Predictor API is running (No Database)',
-    timestamp: new Date().toISOString(),
-    usersCount: users.length
+    message: 'AI Taste Predictor API is running (No Auth)',
+    timestamp: new Date().toISOString()
   });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'Welcome to AI Taste Predictor API (No Database Version)',
+    message: 'Welcome to AI Taste Predictor API',
     version: '1.0.0',
     endpoints: {
-      auth: {
-        register: 'POST /api/auth/register',
-        login: 'POST /api/auth/login'
-      },
-      protected: {
-        predict: 'POST /api/predict',
-        generateRecipe: 'POST /api/generate-recipe'
-      },
+      predict: 'POST /api/predict',
+      generateRecipe: 'POST /api/generate-recipe',
       health: 'GET /api/health'
     }
   });
@@ -389,11 +250,9 @@ app.get('/', (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`🚀 Server is running and listening on port ${port} (No Database)`);
+  console.log(`🚀 Server is running and listening on port ${port}`);
   console.log(`🌐 API URL: http://localhost:${port}`);
   console.log('📋 Available Endpoints:');
-  console.log(`   POST /api/auth/register   - Register new user`);
-  console.log(`   POST /api/auth/login      - Login user`);
   console.log(`   POST /api/predict         - AI taste prediction`);
   console.log(`   POST /api/generate-recipe - Generate AI recipe`);
   console.log(`   GET  /api/health          - Health check`);
