@@ -1,4 +1,3 @@
-// frontend/src/App.jsx
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
@@ -56,6 +55,7 @@ function App() {
       setShowAuthModal(false);
       setAuthEmail('');
       setAuthPassword('');
+      setAuthError('');
     } catch (error) {
       setAuthError(error.response?.data?.error || 'Registration failed');
     }
@@ -76,6 +76,7 @@ function App() {
       setShowAuthModal(false);
       setAuthEmail('');
       setAuthPassword('');
+      setAuthError('');
     } catch (error) {
       setAuthError(error.response?.data?.error || 'Login failed');
     }
@@ -174,6 +175,7 @@ function App() {
               value={authEmail}
               onChange={(e) => setAuthEmail(e.target.value)}
               required
+              placeholder="Enter your email"
             />
           </div>
           <div className="form-group">
@@ -184,6 +186,7 @@ function App() {
               onChange={(e) => setAuthPassword(e.target.value)}
               required
               minLength={6}
+              placeholder="Enter your password"
             />
           </div>
           {authError && <div className="error-message">{authError}</div>}
@@ -195,12 +198,22 @@ function App() {
           {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
           <span
             className="auth-switch"
-            onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+            onClick={() => {
+              setAuthMode(authMode === 'login' ? 'register' : 'login');
+              setAuthError('');
+            }}
           >
             {authMode === 'login' ? 'Register here' : 'Login here'}
           </span>
         </p>
-        <button className="btn btn-outline" onClick={() => setShowAuthModal(false)}>
+        <button 
+          className="btn btn-outline" 
+          onClick={() => {
+            setShowAuthModal(false);
+            setAuthError('');
+          }}
+          style={{ marginTop: '1rem' }}
+        >
           Cancel
         </button>
       </div>
@@ -346,7 +359,7 @@ function App() {
           <>
             <div className="form-group">
               <label>Email</label>
-              <input type="text" value={user.email} readOnly />
+              <input type="text" value={user.email} readOnly className="form-control" />
             </div>
             
             <div className="form-group">
@@ -397,6 +410,7 @@ function App() {
                   <button className="btn" onClick={() => {
                     setShowAuthModal(true);
                     setAuthMode('login');
+                    setAuthError('');
                   }}>
                     Login
                   </button>
@@ -415,6 +429,7 @@ function App() {
             <button className="btn" onClick={() => {
               setShowAuthModal(true);
               setAuthMode('register');
+              setAuthError('');
             }}>
               Get Started - Sign Up Free
             </button>
