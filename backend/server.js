@@ -5,7 +5,10 @@ const cors = require('cors');
 const axios = require('axios');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
-const User = require('./models/User');
+const path = require('path');
+
+// Fix: Correct User model import using path
+const User = require(path.join(__dirname, 'models', 'User'));
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -15,10 +18,7 @@ app.use(cors());
 app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log('✅ Connected to MongoDB Atlas'))
 .catch((err) => {
   console.error('❌ MongoDB connection error:', err);
@@ -26,17 +26,6 @@ mongoose.connect(process.env.MONGODB_URI, {
 });
 
 // Auth middleware
-const auth = (req, res, next) => {
-  req.user = {
-    _id: 'testuserid',
-    email: 'test@example.com',
-    preferences: {},
-    tasteHistory: [],
-    savedRecipes: []
-  };
-  next();
-};
-/*
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -57,12 +46,14 @@ const auth = async (req, res, next) => {
   } catch (error) {
     res.status(401).json({ error: 'Please authenticate.' });
   }
-};*/
+};
 
-// AUTH ENDPOINTS
+// AUTH ENDPOINTS with better error handling
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    console.log('Registration attempt for:', email);
 
     // Validation
     if (!email || !password) {
@@ -90,6 +81,8 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log('User registered successfully:', email);
+
     res.status(201).json({
       message: 'User created successfully',
       token,
@@ -101,7 +94,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error during registration' });
   }
 });
 
@@ -109,14 +102,22 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('Login attempt for:', email);
+
     // Validation
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user and check password
+    // Find user
     const user = await User.findOne({ email });
-    if (!user || !(await user.correctPassword(password))) {
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Check password
+    const isPasswordValid = await user.correctPassword(password);
+    if (!isPasswordValid) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -126,6 +127,8 @@ app.post('/api/auth/login', async (req, res) => {
       process.env.JWT_SECRET || 'fallback-secret',
       { expiresIn: '7d' }
     );
+
+    console.log('User logged in successfully:', email);
 
     res.json({
       message: 'Login successful',
@@ -138,7 +141,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error during login' });
   }
 });
 
