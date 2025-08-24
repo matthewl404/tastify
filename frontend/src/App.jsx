@@ -1,103 +1,21 @@
-import { useState, useEffect } from 'react';
+// frontend/src/App.jsx
+import { useState } from 'react';
 import axios from 'axios';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
   const [ingredients, setIngredients] = useState('');
   const [prediction, setPrediction] = useState(null);
   const [recipe, setRecipe] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingRecipe, setIsGeneratingRecipe] = useState(false);
-  const [activeTab, setActiveTab] = useState('input');
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authError, setAuthError] = useState('');
-
-  // Configure axios to use token
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUserProfile();
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
-  }, [token]);
-
-  const fetchUserProfile = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/api/profile`);
-      setUser(response.data.user);
-    } catch (error) {
-      console.error('Failed to fetch user profile:', error);
-      localStorage.removeItem('token');
-      setToken(null);
-    }
-  };
-
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      const response = await axios.post(`${API_URL}/api/auth/register`, {
-        email: authEmail,
-        password: authPassword
-      });
-      
-      localStorage.setItem('token', response.data.token);
-      setToken(response.data.token);
-      setUser(response.data.user);
-      setShowAuthModal(false);
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthError('');
-    } catch (error) {
-      setAuthError(error.response?.data?.error || 'Registration failed');
-    }
-  };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      const response = await axios.post(`${API_URL}/api/auth/login`, {
-        email: authEmail,
-        password: authPassword
-      });
-      
-      localStorage.setItem('token', response.data.token);
-      setToken(response.data.token);
-      setUser(response.data.user);
-      setShowAuthModal(false);
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthError('');
-    } catch (error) {
-      setAuthError(error.response?.data?.error || 'Login failed');
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-    setPrediction(null);
-    setRecipe(null);
-  };
+  const [activeTab, setActiveTab] = useState('predict');
 
   const handlePredict = async (e) => {
     e.preventDefault();
     if (!ingredients) return;
-    if (!user) {
-      setShowAuthModal(true);
-      setAuthMode('login');
-      return;
-    }
 
     setIsLoading(true);
     setPrediction(null);
@@ -110,6 +28,7 @@ function App() {
       setPrediction(response.data);
     } catch (error) {
       console.error('Error calling prediction API:', error);
+      // Fallback response
       const simulatedResponse = {
         prediction: Math.random() > 0.5 ? 'like' : 'dislike',
         confidence: (Math.random() * 0.3 + 0.6).toFixed(2),
@@ -137,6 +56,7 @@ function App() {
       setRecipe(response.data);
     } catch (error) {
       console.error('Error generating recipe:', error);
+      // Fallback recipe
       const simulatedRecipe = {
         name: `AI-Generated ${ingredients.split(',')[0]} Recipe`,
         prepTime: `${Math.floor(Math.random() * 10) + 5} minutes`,
@@ -163,64 +83,7 @@ function App() {
     }
   };
 
-  const AuthModal = () => (
-    <div className="modal-overlay" onClick={() => setShowAuthModal(false)}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
-        <form onSubmit={authMode === 'login' ? handleLogin : handleRegister}>
-          <div className="form-group">
-            <label>Email</label>
-            <input
-              type="email"
-              value={authEmail}
-              onChange={(e) => setAuthEmail(e.target.value)}
-              required
-              placeholder="Enter your email"
-            />
-          </div>
-          <div className="form-group">
-            <label>Password</label>
-            <input
-              type="password"
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              required
-              minLength={6}
-              placeholder="Enter your password"
-            />
-          </div>
-          {authError && <div className="error-message">{authError}</div>}
-          <button type="submit" className="btn">
-            {authMode === 'login' ? 'Login' : 'Register'}
-          </button>
-        </form>
-        <p>
-          {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
-          <span
-            className="auth-switch"
-            onClick={() => {
-              setAuthMode(authMode === 'login' ? 'register' : 'login');
-              setAuthError('');
-            }}
-          >
-            {authMode === 'login' ? 'Register here' : 'Login here'}
-          </span>
-        </p>
-        <button 
-          className="btn btn-outline" 
-          onClick={() => {
-            setShowAuthModal(false);
-            setAuthError('');
-          }}
-          style={{ marginTop: '1rem' }}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderInputTab = () => (
+  const renderPredictTab = () => (
     <div className="tab-content active">
       <div className="card">
         <h2 className="card-title">
@@ -319,68 +182,25 @@ function App() {
                 </div>
               ))}
             </div>
-            
-            <button className="btn btn-outline">
-              <i className="fas fa-save"></i> Save AI Recipe
-            </button>
           </div>
         </div>
       )}
     </div>
   );
 
-  const renderDashboardTab = () => (
+  const renderAboutTab = () => (
     <div className="tab-content">
       <div className="card">
-        <h2 className="card-title"><i className="fas fa-chart-bar"></i> Taste Analytics</h2>
-        <p>Your prediction history will appear here once you start using the app.</p>
-        {user?.tasteHistory?.length > 0 ? (
-          user.tasteHistory.map((item, index) => (
-            <div key={index} className="history-item">
-              <div className="history-item-info">
-                <h4>{item.ingredients.join(', ')}</h4>
-                <p>Prediction: {item.prediction} ({(item.confidence * 100).toFixed(0)}% confidence)</p>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p>No prediction history yet. Make some predictions to see your analytics!</p>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderProfileTab = () => (
-    <div className="tab-content">
-      <div className="card">
-        <h2 className="card-title"><i className="fas fa-user"></i> User Profile</h2>
+        <h2 className="card-title"><i className="fas fa-info-circle"></i> About AI Taste Predictor</h2>
+        <p>This app uses advanced AI to analyze ingredients and predict whether you'll enjoy a dish. Simply enter your ingredients and get instant predictions and recipe suggestions!</p>
         
-        {user ? (
-          <>
-            <div className="form-group">
-              <label>Email</label>
-              <input type="text" value={user.email} readOnly className="form-control" />
-            </div>
-            
-            <div className="form-group">
-              <label>Dietary Preferences</label>
-              <div className="preference-tags">
-                {Object.entries(user.preferences || {}).map(([key, value]) => (
-                  <div key={key} className={`tag ${value ? 'active' : ''}`}>
-                    <i className={`fas fa-${value ? 'check' : 'times'}-circle`}></i> 
-                    {key.charAt(0).toUpperCase() + key.slice(1)}
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <button className="btn btn-outline" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt"></i> Logout
-            </button>
-          </>
-        ) : (
-          <p>Please login to view your profile.</p>
-        )}
+        <div className="recipe-card">
+          <h4><i className="fas fa-lightbulb"></i> How It Works</h4>
+          <p>• Enter any ingredients or describe a meal</p>
+          <p>• AI analyzes flavor profiles and combinations</p>
+          <p>• Get instant predictions with confidence scores</p>
+          <p>• Generate customized recipes based on the analysis</p>
+        </div>
       </div>
     </div>
   );
@@ -395,27 +215,8 @@ function App() {
               <span>AI Taste Predictor</span>
             </div>
             <ul className="nav-links">
-              <li><a href="#input" onClick={() => setActiveTab('input')}>Predict Taste</a></li>
-              <li><a href="#dashboard" onClick={() => setActiveTab('dashboard')}>Dashboard</a></li>
-              <li><a href="#profile" onClick={() => setActiveTab('profile')}>Profile</a></li>
-              {user ? (
-                <li>
-                  <span className="user-welcome">Welcome, {user.email}</span>
-                  <button className="btn btn-outline" onClick={handleLogout}>
-                    Logout
-                  </button>
-                </li>
-              ) : (
-                <li>
-                  <button className="btn" onClick={() => {
-                    setShowAuthModal(true);
-                    setAuthMode('login');
-                    setAuthError('');
-                  }}>
-                    Login
-                  </button>
-                </li>
-              )}
+              <li><a href="#predict" onClick={() => setActiveTab('predict')}>Predict Taste</a></li>
+              <li><a href="#about" onClick={() => setActiveTab('about')}>How It Works</a></li>
             </ul>
           </nav>
         </div>
@@ -424,16 +225,7 @@ function App() {
       <div className="container">
         <section className="hero">
           <h1>Discover What Tastes Good to You</h1>
-          <p>Our AI predicts whether you'll enjoy a dish based on your preferences and suggests improvements to make it perfect for your palate.</p>
-          {!user && (
-            <button className="btn" onClick={() => {
-              setShowAuthModal(true);
-              setAuthMode('register');
-              setAuthError('');
-            }}>
-              Get Started - Sign Up Free
-            </button>
-          )}
+          <p>Our AI predicts whether you'll enjoy a dish based on ingredient combinations and suggests improvements to make it perfect for your palate.</p>
           <div className="api-status">
             <div className="status-indicator status-connected"></div>
             <span>AI System Online - Ready to Predict</span>
@@ -442,28 +234,21 @@ function App() {
 
         <div className="tabs">
           <div 
-            className={`tab ${activeTab === 'input' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('input')}
+            className={`tab ${activeTab === 'predict' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('predict')}
           >
-            Taste Prediction
+            Predict Taste
           </div>
           <div 
-            className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('dashboard')}
+            className={`tab ${activeTab === 'about' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('about')}
           >
-            Dashboard
-          </div>
-          <div 
-            className={`tab ${activeTab === 'profile' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('profile')}
-          >
-            Profile
+            How It Works
           </div>
         </div>
 
-        {activeTab === 'input' && renderInputTab()}
-        {activeTab === 'dashboard' && renderDashboardTab()}
-        {activeTab === 'profile' && renderProfileTab()}
+        {activeTab === 'predict' && renderPredictTab()}
+        {activeTab === 'about' && renderAboutTab()}
       </div>
 
       <footer>
@@ -472,8 +257,6 @@ function App() {
           <p>Deployed with React frontend and Node.js backend.</p>
         </div>
       </footer>
-
-      {showAuthModal && <AuthModal />}
     </div>
   );
 }
